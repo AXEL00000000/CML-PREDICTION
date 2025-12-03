@@ -66,18 +66,20 @@ def create_scenarios_card():
     main_layout.addLayout(strategy_row)
     
     # ========== PANEL SUPERIOR CON INPUTS ==========
-    # Fila 1: Mes Inicio
+    # Fila 1: Mes Inicio (auto) → Duración (editable) → Mes Fin (calculado) → Dosis
     row1 = QHBoxLayout()
     row1.setContentsMargins(0, 0, 0, 0)
     row1.setSpacing(3)
-    lbl1 = QLabel("Mes Inicio:")
-    lbl1.setStyleSheet("font-size: 12px; min-width: 60px;")
+    
+    # Mes Inicio (se actualiza automáticamente, pero editable)
+    lbl1 = QLabel("Inicio:")
+    lbl1.setStyleSheet("font-size: 12px; min-width: 55px;")
     mes_inicio_spin = QSpinBox()
     mes_inicio_spin.setMinimum(0)
     mes_inicio_spin.setMaximum(1000)
     mes_inicio_spin.setValue(0)
     mes_inicio_spin.setFixedHeight(28)
-    mes_inicio_spin.setMaximumWidth(100)
+    mes_inicio_spin.setMaximumWidth(80)
     mes_inicio_spin.setButtonSymbols(QSpinBox.UpDownArrows)
     mes_inicio_spin.setStyleSheet("""
         QSpinBox {
@@ -118,17 +120,17 @@ def create_scenarios_card():
     row1.addWidget(mes_inicio_spin)
     row1.addSpacing(15)
     
-    # Fila 1b: Mes Fin
-    lbl2 = QLabel("Mes Fin:")
-    lbl2.setStyleSheet("font-size: 12px; min-width: 60px;")
-    mes_fin_spin = QSpinBox()
-    mes_fin_spin.setMinimum(0)
-    mes_fin_spin.setMaximum(1000)
-    mes_fin_spin.setValue(24)
-    mes_fin_spin.setFixedHeight(28)
-    mes_fin_spin.setMaximumWidth(100)
-    mes_fin_spin.setButtonSymbols(QSpinBox.UpDownArrows)
-    mes_fin_spin.setStyleSheet("""
+    # Duración (editable)
+    lbl_dur = QLabel("Duración:")
+    lbl_dur.setStyleSheet("font-size: 12px; min-width: 65px;")
+    duracion_spin = QSpinBox()
+    duracion_spin.setMinimum(1)
+    duracion_spin.setMaximum(1000)
+    duracion_spin.setValue(24)
+    duracion_spin.setFixedHeight(28)
+    duracion_spin.setMaximumWidth(80)
+    duracion_spin.setButtonSymbols(QSpinBox.UpDownArrows)
+    duracion_spin.setStyleSheet("""
         QSpinBox {
             background-color: white;
             color: #333;
@@ -163,13 +165,33 @@ def create_scenarios_card():
             background-color: #66BB6A;
         }
     """)
-    row1.addWidget(lbl2)
-    row1.addWidget(mes_fin_spin)
+    
+    row1.addWidget(lbl_dur)
+    row1.addWidget(duracion_spin)
     row1.addSpacing(15)
     
-    # Fila 1c: Dosis (%)
+    # Mes Fin (calculado: Inicio + Duración)
+    lbl_fin = QLabel("Fin:")
+    lbl_fin.setStyleSheet("font-size: 12px; min-width: 35px;")
+    mes_fin_lbl = QLabel("24")
+    mes_fin_lbl.setStyleSheet("""
+        font-size: 12px; 
+        color: #666; 
+        background-color: #f0f0f0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 4px 6px;
+        min-width: 60px;
+        font-weight: bold;
+    """)
+    mes_fin_lbl.setAlignment(Qt.AlignCenter)
+    row1.addWidget(lbl_fin)
+    row1.addWidget(mes_fin_lbl)
+    row1.addSpacing(15)
+    
+    # Dosis (%)
     lbl3 = QLabel("Dosis (%):")
-    lbl3.setStyleSheet("font-size: 12px; min-width: 60px;")
+    lbl3.setStyleSheet("font-size: 12px; min-width: 70px;")
     dosis_spin = QDoubleSpinBox()
     dosis_spin.setMinimum(0)
     dosis_spin.setMaximum(100)
@@ -177,7 +199,7 @@ def create_scenarios_card():
     dosis_spin.setSingleStep(5)
     dosis_spin.setDecimals(1)
     dosis_spin.setFixedHeight(28)
-    dosis_spin.setMaximumWidth(100)
+    dosis_spin.setMaximumWidth(80)
     dosis_spin.setButtonSymbols(QDoubleSpinBox.UpDownArrows)
     dosis_spin.setStyleSheet("""
         QDoubleSpinBox {
@@ -297,8 +319,8 @@ def create_scenarios_card():
     main_layout.addLayout(button_layout)
     
     # ========== TABLA DE ESCENARIOS (ABAJO) ==========
-    table = QTableWidget(0, 3)
-    table.setHorizontalHeaderLabels(["Mes Inicio", "Mes Fin", "Dosis (%)"])
+    table = QTableWidget(0, 4)
+    table.setHorizontalHeaderLabels(["Inicio", "Duración", "Fin", "Dosis (%)"])
     table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
     table.setObjectName("scenarios_table")
     table.verticalHeader().setVisible(False)
@@ -326,7 +348,8 @@ def create_scenarios_card():
     return card, {
         'table': table,
         'mes_inicio_spin': mes_inicio_spin,
-        'mes_fin_spin': mes_fin_spin,
+        'duracion_spin': duracion_spin,
+        'mes_fin_lbl': mes_fin_lbl,
         'dosis_spin': dosis_spin,
         'btn_add': btn_add,
         'btn_update': btn_update,

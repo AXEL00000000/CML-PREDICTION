@@ -1,3 +1,67 @@
+def create_info_panel(ax, patient_name, clinical_data, params, scenarios_data=None, projection_end=None):
+    """
+    Crea un panel informativo en la gráfica con interpretación según el autor
+    """
+    # Recolectar información básica
+    clinical_months = [d[0] for d in clinical_data]
+    last_month = clinical_months[-1] if clinical_months else 0
+
+    # Calcular estadísticas del modelo para interpretación
+    measurable_points = sum(1 for d in clinical_data if not (isinstance(d[1], str) and d[1].upper() == 'ND'))
+    nd_points = len(clinical_data) - measurable_points
+
+    # Texto principal
+    info_text = f"📋 {patient_name}\n"
+    info_text += "─" * 30 + "\n"
+    info_text += f"• Datos: {len(clinical_data)} pts ({measurable_points} medibles)\n"
+
+    # INTERPRETACIÓN SEGÚN EL AUTOR (puntos clave)
+    info_text += "\n🔬 INTERPRETACIÓN (según Karg et al., 2022):\n"
+    info_text += "─" * 30 + "\n"
+    key_points = [
+        "• Reducción escalonada de TKI antes del cese puede ↑ TFR",
+        "• Duración total del tratamiento es clave para TFR",
+        "• Dosis más bajas son suficientes para muchos pacientes",
+        "• Sistema inmune controla enfermedad residual"
+    ]
+    for point in key_points:
+        info_text += f"{point}\n"
+
+    # Si hay escenarios aplicados, añadir nota específica
+    if scenarios_data:
+        total_dose_months = sum((end-start) * (dose/100) for start, end, dose in scenarios_data)
+        full_dose_months = sum((end-start) for start, end, dose in scenarios_data)
+        dose_reduction = (1 - total_dose_months/full_dose_months) * 100 if full_dose_months > 0 else 0
+        info_text += f"\n💊 Reducción de dosis en escenarios:\n"
+        info_text += f"  - Total: {dose_reduction:.1f}% menos TKI\n"
+        # Evaluación del riesgo basada en parámetros del modelo
+        if params and 'p_Z' in params:
+            immune_strength = params.get('p_Z', 0)
+            if immune_strength > 0.1:
+                info_text += f"  - Sistema inmune: FUERTE (p_Z={immune_strength:.3f})\n"
+                info_text += f"  → Buen candidato para reducción\n"
+            else:
+                info_text += f"  - Sistema inmune: DÉBIL (p_Z={immune_strength:.3f})\n"
+                info_text += f"  → Precaución con reducción\n"
+
+    # Calcular posición del cuadro (esquina superior derecha)
+    x_pos = 0.98
+    y_pos = 0.98
+
+    # Crear cuadro de texto con fondo profesional
+    ax.text(x_pos, y_pos, info_text, 
+            transform=ax.transAxes,
+            fontsize=8.5,
+            verticalalignment='top',
+            horizontalalignment='right',
+            bbox=dict(boxstyle='round,pad=0.5',
+                     facecolor='white',
+                     edgecolor='#2E86AB',
+                     alpha=0.95,
+                     linewidth=1.5),
+            linespacing=1.3,
+            fontfamily='monospace')
+    return info_text
 """
 Proyecciones y escenarios para CML
 Funciones: Estrategias de dosificación, proyecciones, gráficas de escenarios
@@ -351,29 +415,25 @@ def plot_projection_with_strategies(patient_name, clinical_data, strategies=['ta
         import matplotlib.pyplot as plt
         fig = plt.figure(figsize=(14, 9))
         
-        # ========== GRÁFICA 1: BCR-ABL logarítmico con zonas de dosis ==========
+
+        # ========== GRÁFICA 1: BCR-ABL logarítmico con zonas de dosis ========== 
         ax1 = plt.subplot2grid((3, 2), (0, 0), colspan=2)
-        
+
         # Crear zonas sombreadas para diferentes dosis
         dose_intervals = []
         tolerance = 0.001
         current_dose = round(complete_doses[0], 3)
         start_idx = 0
-        
         for i in range(1, len(complete_doses)):
             rounded_dose = round(complete_doses[i], 3)
             if abs(rounded_dose - current_dose) > tolerance:
                 dose_intervals.append((complete_months[start_idx], complete_months[i], current_dose))
                 current_dose = rounded_dose
                 start_idx = i
-        
         dose_intervals.append((complete_months[start_idx], complete_months[-1], current_dose))
-        
-        # Dibujar zonas sombreadas
         for idx, (start_time, end_time, dose_val) in enumerate(dose_intervals):
             shade = 0.9 - 0.2 * (idx % 4)
             ax1.axvspan(start_time, end_time, facecolor=(shade, shade, shade), alpha=0.25, edgecolor='none')
-            
             xm = (start_time + end_time) / 2.0
             dose_percent = dose_val * 100
             if dose_percent % 1 < 0.1 or dose_percent % 1 > 0.9:
@@ -382,7 +442,9 @@ def plot_projection_with_strategies(patient_name, clinical_data, strategies=['ta
                 label = f'Dose={dose_percent:.1f}%'
             ax1.text(xm, 0.95, label, ha='center', va='top', fontsize=9, 
                     fontweight='bold', transform=ax1.get_xaxis_transform())
-        
+
+        # (El panel informativo de paciente se elimina para dejar solo el panel general en ax3)
+
         # Graficar curva completa
         ax1.semilogy(complete_months, complete_bcr, color='blue', label='Simulación', linewidth=2)
         
@@ -447,20 +509,64 @@ def plot_projection_with_strategies(patient_name, clinical_data, strategies=['ta
         ax2.grid(True, alpha=0.3)
         ax2.legend(fontsize=9)
         
-        # ========== GRÁFICA 3: BCR-ABL lineal ==========
+        # ========== PANEL RESUMIDO DE INTERPRETACIÓN GENERAL (tabla concreta) ========== 
         ax3 = plt.subplot2grid((3, 2), (1, 1))
-        ax3.plot(complete_months, complete_bcr, color='blue', linewidth=2, label='Ratio (%)')
-        
-        # Graficar puntos medibles y ND separados
-        if clinical_times_measured:
-            ax3.plot(clinical_times_measured, clinical_values_measured, 'ro', markersize=6, label='Datos clínicos')
-        if nd_times:
-            ax3.plot(nd_times, [DETECTION_LIMIT * 100] * len(nd_times), 'g^', markersize=7, label='ND')
-        
-        ax3.set_xlabel('Tiempo (meses)', fontsize=10)
-        ax3.set_ylabel('% Leucemia', fontsize=10)
-        ax3.grid(True, alpha=0.3)
-        ax3.legend(fontsize=9)
+        ax3.axis('off')
+        # Datos clave para la tabla
+        total_points = len(clinical_data_for_plotting)
+        measurable_points = sum(1 for d in clinical_data_for_plotting if not (isinstance(d[1], str) and d[1].upper() == 'ND'))
+        nd_points = total_points - measurable_points
+        last_bcr = clinical_data_for_plotting[-1][1] if total_points > 0 else None
+        last_month = clinical_data_for_plotting[-1][0] if total_points > 0 else None
+        # Dosis reducción si hay escenarios
+        dose_reduction = None
+        if scenarios_data:
+            total_dose_months = sum((end-start) * (dose/100) for start, end, dose in scenarios_data)
+            full_dose_months = sum((end-start) for start, end, dose in scenarios_data)
+            dose_reduction = (1 - total_dose_months/full_dose_months) * 100 if full_dose_months > 0 else 0
+        # Tabla de resumen (sin sistema inmune, con indicación MR4)
+        # Calcular si se alcanza TFR: dosis 0 y % leucemia bajo por >=12 meses consecutivos
+        tfr_achieved = False
+        min_months = 12
+        threshold_mr3 = 0.1
+        threshold_mr4 = 0.01
+        consecutive = 0
+        for dose, bcr in zip(complete_doses, complete_bcr):
+            if dose == 0 and (bcr <= threshold_mr3 or bcr <= threshold_mr4):
+                consecutive += 1
+            else:
+                consecutive = 0
+            if consecutive >= min_months:
+                tfr_achieved = True
+                break
+        tfr_text = "Sí" if tfr_achieved else "No"
+        if tfr_achieved:
+            tfr_reason = "Leucemia baja y sin TKI ≥12m"
+        else:
+            tfr_reason = "No: leucemia o TKI >12m"
+        table_data = [
+            ["Paciente", str(patient_name)],
+            ["Puntos clínicos", f"{total_points} ({measurable_points} medibles, {nd_points} ND)"],
+            ["Último mes", f"{last_month}" if last_month is not None else "-"],
+            ["Último % Leucemia", f"{last_bcr:.3%}" if last_bcr is not None and not (isinstance(last_bcr, str) and last_bcr.upper() == 'ND') else "ND"],
+        ]
+        table_data.append(["Meta clínica", "MR3, MR4 (>12m)"])
+        table_data.append(["Remisión", "% leucemia bajo >12m"])
+        table_data.append(["X/Y/Z", "X: reserva, Y: actividad, Z: defensa"])
+        table_data.append(["TFR alcanzado", tfr_text])
+        table_data.append(["Motivo TFR", tfr_reason])
+        # Mostrar tabla
+        ax3.table(cellText=table_data, colLabels=["Dato", "Valor"], loc='center', cellLoc='left', colLoc='left', bbox=[0, 0, 1, 1])
+        tabla = ax3.table(cellText=table_data, colLabels=["Dato", "Valor"], loc='center', cellLoc='left', colLoc='left', bbox=[0, 0, 1, 1])
+        tabla.auto_set_font_size(False)
+        tabla.set_fontsize(10)
+        # Colorear encabezado 'Dato' de gris oscuro
+        for (row, col), cell in tabla.get_celld().items():
+            if row == 0:
+                cell.set_facecolor('#444444')
+                cell.set_text_props(color='white', weight='bold')
+        tabla.scale(1.1, 1.8)
+        ax3.set_title("INTERPRETACIÓN GENERAL DE LA PROYECCIÓN", fontsize=14, fontweight='bold', pad=22)
         
         # ========== GRÁFICA 4: log10(Ratio) ==========
         ax4 = plt.subplot2grid((3, 2), (2, 0), colspan=2)

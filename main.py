@@ -24,7 +24,7 @@ from ui.cards.history import create_history_card
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CML Optimization - Diseño con sidebar y cards")
+        self.setWindowTitle("CML PREDICCIÓN")
         
         # Maximizar ventana
         from PySide6.QtCore import Qt as QtCore_Qt
@@ -56,24 +56,26 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(10)
         self.setCentralWidget(central)
         
-        # Sidebar
-        sidebar = Sidebar()
-        
-        # Área principal
+        # Área principal sin sidebar
         area = QWidget()
         area_layout = QVBoxLayout(area)
         area_layout.setContentsMargins(0, 0, 0, 0)
         area_layout.setSpacing(10)
-        
+
+        # Título principal centrado, ancho y visible
+        title_label = QLabel("CML PREDICCIÓN")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #1e7d2d; background: none; margin-bottom: 12px; margin-top: 6px; letter-spacing: 2px; padding-left: 16px; padding-right: 16px;")
+        area_layout.addWidget(title_label)
+
         # Crear cards
         self._setup_cards()
-        
+
         # Agregar cards al área
         area_layout.addWidget(self._create_patient_row(), 1)
         area_layout.addWidget(self._create_projection_row(), 2)
-        
-        # Agregar al layout principal
-        main_layout.addWidget(sidebar)
+
+        # Agregar al layout principal (sin sidebar)
         main_layout.addWidget(area, 1)
     
     def _setup_cards(self):
@@ -100,15 +102,14 @@ class MainWindow(QMainWindow):
         # Agregar títulos
         if self.card_scenarios.layout():
             self.card_scenarios.layout().insertWidget(0, create_card_title("Escenarios de Tratamiento"))
-        if self.card_proj.layout():
-            self.card_proj.layout().insertWidget(0, create_card_title("Proyección de respuesta (BCR-ABL)"))
     
     def _store_widget_refs(self, scenarios_w, proj_w, patient_w, hist_w):
         """Almacena referencias a widgets importantes"""
         # Escenarios de tratamiento
         self.scenarios_table = scenarios_w.get('table')
         self.mes_inicio_spin = scenarios_w.get('mes_inicio_spin')
-        self.mes_fin_spin = scenarios_w.get('mes_fin_spin')
+        self.duracion_spin = scenarios_w.get('duracion_spin')
+        self.mes_fin_lbl = scenarios_w.get('mes_fin_lbl')
         self.dosis_spin = scenarios_w.get('dosis_spin')
         self.scenario_add_btn = scenarios_w.get('btn_add')
         self.scenario_update_btn = scenarios_w.get('btn_update')
@@ -195,11 +196,19 @@ class MainWindow(QMainWindow):
         self.scenario_delete_btn.clicked.connect(self._on_delete_scenario_row)
         self.scenarios_table.itemSelectionChanged.connect(self._on_scenario_selection)
         self.strategy_combo.currentIndexChanged.connect(self._on_apply_strategy)
+        self.duracion_spin.valueChanged.connect(self._on_duracion_changed)
+        self.mes_inicio_spin.valueChanged.connect(self._on_mes_inicio_changed)
+        
+        # Conectar cambios en historial para actualizar mes inicio automáticamente
+        self.tabla.model().rowsInserted.connect(self._update_mes_inicio_from_history)
+        self.tabla.model().rowsRemoved.connect(self._update_mes_inicio_from_history)
+        self.tabla.model().dataChanged.connect(self._update_mes_inicio_from_history)
     
     def _load_initial_data(self):
         """Carga datos iniciales"""
         # No pre-seleccionar paciente, dejar combobox vacío
-        pass
+        # Inicializar estado del checkbox de continuación
+        self._update_mes_inicio_from_history()
     
     def _show_warning_red(self, title, message):
         """Muestra un QMessageBox warning con texto en rojo"""
@@ -220,6 +229,11 @@ class MainWindow(QMainWindow):
     # ========== OPTIMIZACIÓN ==========
     def _start_optimization(self):
         """Inicia la optimización genética"""
+        # Prevenir inicio si ya hay una optimización corriendo
+        if self.optimization_thread and self.optimization_thread.isRunning():
+            print("⚠ Ya hay una optimización en ejecución")
+            return
+            
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.sim_progress.setValue(0)
@@ -348,7 +362,7 @@ class MainWindow(QMainWindow):
                 child.widget().deleteLater()
         
         # Botón Ver Gráficas
-        btn_plots = QPushButton("Ver Gráficas")
+        btn_plots = QPushButton("Optimización")
         btn_plots.setFixedHeight(28)
         btn_plots.setMinimumWidth(110)
         btn_plots.setStyleSheet("""
@@ -445,14 +459,35 @@ class MainWindow(QMainWindow):
         self._start_optimization()
     
     def _on_stop_optimization(self):
-        """Detiene la optimización"""
-        if self.optimization_thread and self.optimization_thread.isRunning():
-            self.optimization_thread.stop()
-        
+        """Cancela la optimización y espera a que termine"""
+        # Desconectar la señal de progreso para evitar que emisiones
+        # del thread sigan actualizando la barra después de resetearla.
+        try:
+            if self.optimization_thread:
+                try:
+                    self.optimization_thread.progress.disconnect(self._on_optimization_progress)
+                except Exception:
+                    pass
+
+                if self.optimization_thread.isRunning():
+                    self.optimization_thread.stop()
+                    # Esperar hasta 5 segundos a que el thread termine
+                    if not self.optimization_thread.wait(5000):
+                        # Si no termina, forzar terminación
+                        try:
+                            self.optimization_thread.terminate()
+                        except Exception:
+                            pass
+                        self.optimization_thread.wait()
+
+        except Exception:
+            pass
+
+        # Asegurar que la UI muestra el estado detenido y la barra en 0
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.sim_progress.setValue(0)
-        print("⊛ Optimización detenida")
+        print("⊛ Optimización cancelada")
     
     def _on_projection_button_clicked(self):
         """Maneja proyección con estrategias"""
@@ -482,8 +517,8 @@ class MainWindow(QMainWindow):
         scenarios_data = []
         for row in range(self.scenarios_table.rowCount()):
             mes_inicio_item = self.scenarios_table.item(row, 0)
-            mes_fin_item = self.scenarios_table.item(row, 1)
-            dosis_item = self.scenarios_table.item(row, 2)
+            mes_fin_item = self.scenarios_table.item(row, 2)  # Columna 2 es Fin
+            dosis_item = self.scenarios_table.item(row, 3)    # Columna 3 es Dosis
             
             if mes_inicio_item and mes_fin_item and dosis_item:
                 mes_inicio = int(mes_inicio_item.text())
@@ -491,6 +526,14 @@ class MainWindow(QMainWindow):
                 dosis_text = dosis_item.text().replace("%", "")
                 dosis = float(dosis_text)
                 scenarios_data.append((mes_inicio, mes_fin, dosis))
+        
+        # Validar continuidad de escenarios (advertencia, no bloqueo)
+        if len(scenarios_data) > 1:
+            for i in range(1, len(scenarios_data)):
+                inicio_actual = scenarios_data[i][0]
+                fin_anterior = scenarios_data[i-1][1]
+                if inicio_actual != fin_anterior:
+                    print(f"⚠️ Advertencia: Discontinuidad en escenarios entre mes {fin_anterior} y {inicio_actual}")
         
         # Determinar qué estrategias mostrar
         strategy_map = {
@@ -599,10 +642,12 @@ class MainWindow(QMainWindow):
         
         # Datos de pacientes
         patient_data = {
+                        "Paciente Manual": {'edad': '', 'clave': 'MANUAL', 'sexo': ''},
             "Christopher Martin Jimenez Osorio": {'edad': '23', 'clave': '517259', 'sexo': 'Masculino'},
             "Paciente Clase B (TFR Exitosa)": {'edad': '45', 'clave': 'CLASS-B', 'sexo': 'Femenino'},
             "Paciente Clase A (Recurrencia)": {'edad': '52', 'clave': 'CLASS-A', 'sexo': 'Masculino'},
             "Paciente Clase C (Recurrencia Tardía)": {'edad': '38', 'clave': 'CLASS-C', 'sexo': 'Femenino'},
+            "Paciente Manual": {'edad': '', 'clave': 'MANUAL', 'sexo': ''},
         }
         
         data = patient_data.get(patient_name, {'edad': '—', 'clave': '—', 'sexo': '—'})
@@ -617,13 +662,31 @@ class MainWindow(QMainWindow):
             self._display_parameters_in_table(params, error)
         else:
             self.results_table.setRowCount(0)
+        
+        # Actualizar mes inicio y recalcular escenarios
+        self._update_mes_inicio_from_history()
     
     # ========== HISTORIAL ==========
     def _on_add_history_row(self):
         """Agrega fila al historial"""
         from PySide6.QtWidgets import QTableWidgetItem
         
-        mes = str(int(self.mes_input.value()))
+        # Deseleccionar fila actual
+        self.tabla.clearSelection()
+        
+        # Detectar último mes y auto-incrementar inteligentemente
+        ultimo_mes = self._get_ultimo_mes_historial()
+        
+        # Si el campo mes no fue modificado manualmente, auto-incrementar
+        mes_actual = int(self.mes_input.value())
+        if self.tabla.rowCount() > 0 and mes_actual <= ultimo_mes:
+            # Detectar patrón común (3, 6, 12 meses)
+            incremento = self._detectar_incremento_patron()
+            mes = str(ultimo_mes + incremento)
+            self.mes_input.setValue(int(mes))
+        else:
+            mes = str(mes_actual)
+        
         dosis = str(self.dosis_input.value())
         porc = str(self.porc_input.value())
         
@@ -637,10 +700,33 @@ class MainWindow(QMainWindow):
         self.tabla.setItem(row, 1, QTableWidgetItem(porc))
         self.tabla.setItem(row, 2, QTableWidgetItem(dosis))
         
-        # Limpiar campos
+        # Limpiar campos y preparar para siguiente registro
         self.mes_input.setValue(0)
         self.dosis_input.setValue(0)
         self.porc_input.setValue(0)
+    
+    def _detectar_incremento_patron(self):
+        """Detecta el patrón de incremento común en el historial"""
+        if self.tabla.rowCount() < 2:
+            return 3  # Default: 3 meses
+        
+        # Calcular diferencias entre registros consecutivos
+        diferencias = []
+        for row in range(1, self.tabla.rowCount()):
+            mes_actual_item = self.tabla.item(row, 0)
+            mes_prev_item = self.tabla.item(row - 1, 0)
+            if mes_actual_item and mes_prev_item:
+                try:
+                    dif = int(mes_actual_item.text()) - int(mes_prev_item.text())
+                    if dif > 0:
+                        diferencias.append(dif)
+                except ValueError:
+                    continue
+        
+        # Retornar el incremento más común, o 3 por defecto
+        if diferencias:
+            return max(set(diferencias), key=diferencias.count)
+        return 3
     
     def _on_update_history_row(self):
         """Actualiza fila del historial"""
@@ -687,19 +773,39 @@ class MainWindow(QMainWindow):
     # ========== ESCENARIOS ==========
     def _on_add_scenario_row(self):
         """Agrega fila al tabla de escenarios"""
-        mes_inicio = int(self.mes_inicio_spin.value())
-        mes_fin = int(self.mes_fin_spin.value())
+        duracion = int(self.duracion_spin.value())
         dosis = self.dosis_spin.value()
         
-        if mes_fin < mes_inicio:
-            self._show_warning_red("Error", "⚠️ Mes Fin debe ser mayor o igual a Mes Inicio.")
-            return
+        # Determinar mes_inicio según lógica híbrida
+        if self.scenarios_table.rowCount() == 0:
+            # Tabla vacía: usar mes_inicio_spin (puede ser desde historial o manual)
+            mes_inicio = int(self.mes_inicio_spin.value())
+        else:
+            # Tabla con datos: verificar si mes_inicio_spin fue modificado manualmente
+            last_row = self.scenarios_table.rowCount() - 1
+            last_fin_item = self.scenarios_table.item(last_row, 2)
+            
+            if last_fin_item:
+                ultimo_fin = int(last_fin_item.text())
+                mes_inicio_actual = int(self.mes_inicio_spin.value())
+                
+                # Si el usuario modificó mes_inicio_spin, respetar su valor
+                # De lo contrario, continuar desde el último fin
+                if mes_inicio_actual > ultimo_fin:
+                    mes_inicio = mes_inicio_actual
+                else:
+                    mes_inicio = ultimo_fin
+            else:
+                mes_inicio = int(self.mes_inicio_spin.value())
+        
+        mes_fin = mes_inicio + duracion
         
         row = self.scenarios_table.rowCount()
         self.scenarios_table.insertRow(row)
         self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio)))
-        self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(mes_fin)))
-        self.scenarios_table.setItem(row, 2, QTableWidgetItem(f"{dosis}%"))
+        self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(duracion)))
+        self.scenarios_table.setItem(row, 2, QTableWidgetItem(str(mes_fin)))
+        self.scenarios_table.setItem(row, 3, QTableWidgetItem(f"{dosis}%"))
     
     def _on_update_scenario_row(self):
         """Actualiza fila del tabla de escenarios"""
@@ -709,16 +815,25 @@ class MainWindow(QMainWindow):
             return
         
         mes_inicio = int(self.mes_inicio_spin.value())
-        mes_fin = int(self.mes_fin_spin.value())
+        duracion = int(self.duracion_spin.value())
+        mes_fin = mes_inicio + duracion
         dosis = self.dosis_spin.value()
         
-        if mes_fin < mes_inicio:
-            self._show_warning_red("Error", "⚠️ Mes Fin debe ser mayor o igual a Mes Inicio.")
-            return
+        # Verificar discontinuidad o choque (advertencia, no bloqueo)
+        if row > 0:
+            prev_fin_item = self.scenarios_table.item(row - 1, 2)
+            if prev_fin_item:
+                prev_fin = int(prev_fin_item.text())
+                if mes_inicio > prev_fin:
+                    print(f"⚠️ Advertencia: Hueco detectado entre mes {prev_fin} y {mes_inicio}")
+                elif mes_inicio < prev_fin:
+                    print(f"⚠️ Advertencia: Solapamiento detectado (inicio {mes_inicio} < fin anterior {prev_fin})")
         
+        # Actualizar inicio, duración, fin y dosis
         self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio)))
-        self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(mes_fin)))
-        self.scenarios_table.setItem(row, 2, QTableWidgetItem(f"{dosis}%"))
+        self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(duracion)))
+        self.scenarios_table.setItem(row, 2, QTableWidgetItem(str(mes_fin)))
+        self.scenarios_table.setItem(row, 3, QTableWidgetItem(f"{dosis}%"))
     
     def _on_delete_scenario_row(self):
         """Elimina fila del tabla de escenarios"""
@@ -734,14 +849,16 @@ class MainWindow(QMainWindow):
         if row < 0:
             return
         
-        mes_inicio_item = self.scenarios_table.item(row, 0)
-        mes_fin_item = self.scenarios_table.item(row, 1)
-        dosis_item = self.scenarios_table.item(row, 2)
+        inicio_item = self.scenarios_table.item(row, 0)
+        duracion_item = self.scenarios_table.item(row, 1)
+        dosis_item = self.scenarios_table.item(row, 3)
         
-        if mes_inicio_item:
-            self.mes_inicio_spin.setValue(int(mes_inicio_item.text()))
-        if mes_fin_item:
-            self.mes_fin_spin.setValue(int(mes_fin_item.text()))
+        if inicio_item:
+            self.mes_inicio_spin.setValue(int(inicio_item.text()))
+        
+        if duracion_item:
+            self.duracion_spin.setValue(int(duracion_item.text()))
+        
         if dosis_item:
             # Remover el símbolo % y convertir a float
             dosis_text = dosis_item.text().replace("%", "")
@@ -828,15 +945,102 @@ class MainWindow(QMainWindow):
                 (37, 120, 0.0)
             ]
         
-        # Llenar tabla con escenarios
-        for mes_inicio, mes_fin, dosis in scenarios:
+        # Llenar tabla con escenarios (convertir a formato: inicio relativo, duración, fin calculado)
+        ultimo_mes = self._get_ultimo_mes_historial()
+        for mes_inicio_rel, mes_fin_rel, dosis in scenarios:
+            duracion = mes_fin_rel - mes_inicio_rel
+            mes_inicio_abs = ultimo_mes + mes_inicio_rel
+            mes_fin_abs = ultimo_mes + mes_fin_rel
+            
             row = self.scenarios_table.rowCount()
             self.scenarios_table.insertRow(row)
-            self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio)))
-            self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(mes_fin)))
-            self.scenarios_table.setItem(row, 2, QTableWidgetItem(f"{dosis}%"))
+            self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio_abs)))
+            self.scenarios_table.setItem(row, 1, QTableWidgetItem(str(duracion)))
+            self.scenarios_table.setItem(row, 2, QTableWidgetItem(str(mes_fin_abs)))
+            self.scenarios_table.setItem(row, 3, QTableWidgetItem(f"{dosis}%"))
         
         print(f"✓ Estrategia aplicada: {strategy_name}")
+    
+    def _get_ultimo_mes_historial(self):
+        """Obtiene el último mes registrado en el historial de medicación"""
+        max_mes = 0
+        for row in range(self.tabla.rowCount()):
+            mes_item = self.tabla.item(row, 0)
+            if mes_item:
+                try:
+                    mes = int(mes_item.text())
+                    if mes > max_mes:
+                        max_mes = mes
+                except ValueError:
+                    continue
+        return max_mes
+    
+    def _update_mes_inicio_from_history(self):
+        """Actualiza el mes de inicio automáticamente desde el historial"""
+        ultimo_mes = self._get_ultimo_mes_historial()
+        self.mes_inicio_spin.setValue(ultimo_mes)
+        self._update_mes_fin()
+        self._recalcular_escenarios_tabla()
+    
+    def _on_duracion_changed(self):
+        """Actualiza el mes fin cuando cambia la duración"""
+        self._update_mes_fin()
+    
+    def _on_mes_inicio_changed(self):
+        """Actualiza el mes fin cuando cambia el mes inicio"""
+        self._update_mes_fin()
+    
+    def _update_mes_fin(self):
+        """Calcula y actualiza el label de mes fin"""
+        mes_inicio = self.mes_inicio_spin.value()
+        duracion = self.duracion_spin.value()
+        mes_fin = mes_inicio + duracion
+        self.mes_fin_lbl.setText(str(mes_fin))
+    
+    def _recalcular_escenarios_tabla(self):
+        """Recalcula todos los valores de Inicio y Fin en la tabla manteniendo las duraciones"""
+        ultimo_mes = self._get_ultimo_mes_historial()
+        
+        for row in range(self.scenarios_table.rowCount()):
+            # Leer la duración (columna 1) que se mantiene constante
+            duracion_item = self.scenarios_table.item(row, 1)
+            if duracion_item:
+                duracion = int(duracion_item.text())
+                
+                # Calcular el inicio basado en el escenario anterior
+                if row == 0:
+                    mes_inicio = ultimo_mes
+                else:
+                    # El inicio es el fin del escenario anterior
+                    prev_fin_item = self.scenarios_table.item(row - 1, 2)
+                    if prev_fin_item:
+                        mes_inicio = int(prev_fin_item.text())
+                    else:
+                        mes_inicio = ultimo_mes
+                
+                # Calcular fin
+                mes_fin = mes_inicio + duracion
+                
+                # Actualizar celdas de Inicio (col 0) y Fin (col 2)
+                self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio)))
+                self.scenarios_table.setItem(row, 2, QTableWidgetItem(str(mes_fin)))
+    
+    def _recalcular_filas_posteriores(self, desde_fila):
+        """Recalcula las filas posteriores a la fila especificada para mantener continuidad"""
+        for row in range(desde_fila + 1, self.scenarios_table.rowCount()):
+            duracion_item = self.scenarios_table.item(row, 1)
+            if duracion_item:
+                duracion = int(duracion_item.text())
+                
+                # El inicio es el fin del escenario anterior
+                prev_fin_item = self.scenarios_table.item(row - 1, 2)
+                if prev_fin_item:
+                    mes_inicio = int(prev_fin_item.text())
+                    mes_fin = mes_inicio + duracion
+                    
+                    # Actualizar Inicio y Fin
+                    self.scenarios_table.setItem(row, 0, QTableWidgetItem(str(mes_inicio)))
+                    self.scenarios_table.setItem(row, 2, QTableWidgetItem(str(mes_fin)))
 
 
 if __name__ == "__main__":

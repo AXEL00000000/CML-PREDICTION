@@ -82,6 +82,7 @@ def create_patient_card():
     patient_combo.addItem("Paciente Clase B (TFR Exitosa)")
     patient_combo.addItem("Paciente Clase A (Recurrencia)")
     patient_combo.addItem("Paciente Clase C (Recurrencia Tardía)")
+    patient_combo.addItem("Paciente Manual")
     select_row_layout.addWidget(select_label)
     select_row_layout.addStretch()
     select_row_layout.addWidget(patient_combo, 1)

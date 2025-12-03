@@ -72,17 +72,43 @@ def create_projection_card():
     # Restarts
     restarts_spin = QSpinBox()
     restarts_spin.setMinimum(1)
-    restarts_spin.setMaximum(20)
+    restarts_spin.setMaximum(999)  # Permitir hasta 3 dígitos
     restarts_spin.setValue(3)
-    restarts_spin.setFixedWidth(50)
-    restarts_spin.setFixedHeight(24)
+    restarts_spin.setFixedSize(80, 28)  # Tamaño fijo completo
+    restarts_spin.setButtonSymbols(QSpinBox.UpDownArrows)
     restarts_spin.setStyleSheet("""
         QSpinBox {
             background-color: white;
-            color: black;
-            border: 1px solid #CCCCCC;
-            border-radius: 3px;
-            padding: 2px;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 2px 2px 2px 4px;
+        }
+        QSpinBox::up-button {
+            background-color: #d0d0d0;
+            border: none;
+            border-radius: 2px;
+            width: 16px;
+            margin: 0px;
+        }
+        QSpinBox::down-button {
+            background-color: #d0d0d0;
+            border: none;
+            border-radius: 2px;
+            width: 16px;
+            margin: 0px;
+        }
+        QSpinBox::up-button:hover {
+            background-color: #b0b0b0;
+        }
+        QSpinBox::up-button:pressed {
+            background-color: #909090;
+        }
+        QSpinBox::down-button:hover {
+            background-color: #b0b0b0;
+        }
+        QSpinBox::down-button:pressed {
+            background-color: #909090;
         }
     """)
     
@@ -91,8 +117,8 @@ def create_projection_card():
     pop_spin.setMinimum(10)
     pop_spin.setMaximum(500)
     pop_spin.setValue(60)
-    pop_spin.setFixedWidth(60)
-    pop_spin.setFixedHeight(24)
+    pop_spin.setFixedSize(80, 28)  # Tamaño fijo completo
+    pop_spin.setButtonSymbols(QSpinBox.UpDownArrows)
     pop_spin.setStyleSheet(restarts_spin.styleSheet())
     
     # Generaciones
@@ -100,8 +126,8 @@ def create_projection_card():
     gens_spin.setMinimum(10)
     gens_spin.setMaximum(500)
     gens_spin.setValue(80)
-    gens_spin.setFixedWidth(60)
-    gens_spin.setFixedHeight(24)
+    gens_spin.setFixedSize(80, 28)  # Tamaño fijo completo
+    gens_spin.setButtonSymbols(QSpinBox.UpDownArrows)
     gens_spin.setStyleSheet(restarts_spin.styleSheet())
     
     params_layout.addWidget(QLabel("Restarts:"))
@@ -139,7 +165,7 @@ def create_projection_card():
         }
     """)
     
-    stop_btn = QPushButton("⏹ Detener")
+    stop_btn = QPushButton("✖ Cancelar")
     stop_btn.setEnabled(False)
     stop_btn.setFixedHeight(28)
     stop_btn.setStyleSheet("""
@@ -163,6 +189,10 @@ def create_projection_card():
             color: #AAAAAA;
         }
     """)
+
+    # El manejo de cancelar/stop lo realiza la ventana principal (`MainWindow`)
+    # para controlar correctamente el `OptimizationThread` y el estado global.
+    # Aquí no conectamos un handler local para evitar duplicar lógica.
     
     opt_buttons_layout.addWidget(start_btn)
     opt_buttons_layout.addWidget(stop_btn)

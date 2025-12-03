@@ -606,7 +606,7 @@ def mutate(individual, mutation_rate=0.25):
     return mutated
 
 
-def genetic_algorithm(clinical_data, population_size=60, generations=80, progress_callback=None):
+def genetic_algorithm(clinical_data, population_size=60, generations=80, progress_callback=None, stop_check=None):
     """
     Algoritmo genético principal para optimizar los parámetros del modelo CML.
     
@@ -624,6 +624,7 @@ def genetic_algorithm(clinical_data, population_size=60, generations=80, progres
         population_size: Tamaño de la población (60 por defecto)
         generations: Número de generaciones (80 por defecto)
         progress_callback: Función para reportar progreso (opcional)
+        stop_check: Función que retorna False si se debe detener (opcional)
     
     Retorna:
         best_individual: Mejor conjunto de parámetros encontrado
@@ -633,6 +634,10 @@ def genetic_algorithm(clinical_data, population_size=60, generations=80, progres
     best_history = []
 
     for gen in range(generations):
+        # Verificar si se debe detener
+        if stop_check and not stop_check():
+            break
+            
         # Evaluar fitness de todos los individuos usando la función principal
         fitnesses = [calculate_fitness(ind, clinical_data) for ind in population]
         
@@ -753,20 +758,27 @@ class OptimizationThread(QThread):
                     self.clinical_data,
                     population_size=self.pop_size,
                     generations=self.generations,
-                    progress_callback=progress_cb
+                    progress_callback=progress_cb,
+                    stop_check=lambda: self.is_running
                 )
                 
-                # Calcular fitness final
-                fit = calculate_fitness(best, self.clinical_data)
-                self.results.append((best, history, fit))
+                # Solo agregar resultados si no se canceló
+                if self.is_running:
+                    # Calcular fitness final
+                    fit = calculate_fitness(best, self.clinical_data)
+                    self.results.append((best, history, fit))
 
-            if self.results:
+            # Solo emitir resultados si no fue cancelado
+            if self.is_running and self.results:
                 # Ordenar resultados por fitness (mejor primero)
                 self.results = sorted(self.results, key=lambda x: x[2], reverse=True)
                 self.best_solution, self.best_history, self.best_fitness = self.results[0]
                 
                 self.progress.emit(100)
                 self.finished.emit(self.best_solution, self.best_fitness, self.best_history)
+            elif not self.is_running:
+                # No hacer nada si fue cancelado
+                pass
             else:
                 self.error.emit("No se encontró solución")
 
@@ -774,7 +786,7 @@ class OptimizationThread(QThread):
             self.error.emit(f"Error: {str(e)}")
 
     def stop(self):
-        """Detiene la optimización de forma segura."""
+        """Cancela la optimización de forma segura."""
         self.is_running = False
 
 
